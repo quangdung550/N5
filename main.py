@@ -93,11 +93,6 @@ LINK_PATTERN = re.compile(
     r"(?:https?://|www\.|discord\.gg/)",
     re.IGNORECASE,
 )
-# Khớp toàn bộ đường link (đến khoảng trắng) để loại bỏ khi kiểm tra ID 6 số.
-URL_FULL_PATTERN = re.compile(
-    r"(?:https?://|www\.|discord\.gg/)\S+",
-    re.IGNORECASE,
-)
 MAX_TIMEOUT_MINUTES = 28 * 24 * 60
 MAX_MESSAGE_WORDS = 80
 MENTION_PATTERN = re.compile(r"<@!?\d+>|<@&\d+>")
@@ -1695,12 +1690,8 @@ def count_effective_words(content: str) -> int:
 
 
 def content_for_id_check(content: str) -> str:
-    """Bỏ link, custom emoji và keycap emoji trước khi tìm ID 6 chữ số.
-
-    Dãy 6 số nằm trong link (ví dụ https://example.com/123456) sẽ được bỏ qua.
-    """
-    without_links = URL_FULL_PATTERN.sub(" ", content)
-    without_custom_emojis = CUSTOM_EMOJI_PATTERN.sub("", without_links)
+    """Bỏ mã custom emoji và keycap emoji trước khi tìm ID 6 chữ số."""
+    without_custom_emojis = CUSTOM_EMOJI_PATTERN.sub("", content)
     return KEYCAP_EMOJI_PATTERN.sub("", without_custom_emojis)
 
 
@@ -1899,7 +1890,7 @@ async def moderate_message(message: discord.Message) -> bool:
         await handle_long_message(message, effective_words)
         return True
 
-    # ID game 6 số ở kênh chat tổng (số nằm trong link sẽ được bỏ qua).
+    # ID game 6 số ở kênh chat tổng.
     if message.channel.id == CHAT_CHANNEL_ID:
         if ID_PATTERN.search(content_for_id_check(message.content)):
             await handle_game_id_violation(message)
