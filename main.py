@@ -88,7 +88,9 @@ DATA_FILE = Path("violations.json")
 # KIỂM DUYỆT: HẰNG SỐ & REGEX
 # =========================================================
 
-ID_PATTERN = re.compile(r"(?<!\d)\d{6}(?!\d)")
+# 6 hoặc 7 số đứng riêng, không dính chữ/số/gạch dưới liền kề.
+# 483920 -> bắt | 123456abc, abc123456, 12345678 -> không bắt
+ID_PATTERN = re.compile(r"(?<!\w)\d{6,7}(?!\w)")
 LINK_PATTERN = re.compile(
     r"(?:https?://|www\.|discord\.gg/)",
     re.IGNORECASE,
@@ -1690,9 +1692,35 @@ def count_effective_words(content: str) -> int:
 
 
 def content_for_id_check(content: str) -> str:
-    """Bỏ mã custom emoji và keycap emoji trước khi tìm ID 6 chữ số."""
+    """Bỏ mã custom emoji và keycap emoji trước khi tìm ID 6-7 chữ số."""
     without_custom_emojis = CUSTOM_EMOJI_PATTERN.sub("", content)
     return KEYCAP_EMOJI_PATTERN.sub("", without_custom_emojis)
+
+
+def is_patterned_number(number: str) -> bool:
+    """True nếu dãy số có quy luật: 111111, 1234567, 654321, 121212, 1231231..."""
+    digits = [int(c) for c in number]
+
+    # Tăng hoặc giảm đều 1 đơn vị: 123456, 1234567, 654321
+    steps = {digits[i + 1] - digits[i] for i in range(len(digits) - 1)}
+    if steps == {1} or steps == {-1}:
+        return True
+
+    # Lặp theo chu kỳ 1-3 số: 111111, 121212, 123123, 1212121
+    for period in (1, 2, 3):
+        if (number[:period] * len(number))[:len(number)] == number:
+            return True
+
+    return False
+
+
+def contains_game_id(content: str) -> bool:
+    """True nếu có dãy 6-7 số đứng riêng và không có quy luật."""
+    cleaned = content_for_id_check(content)
+    return any(
+        not is_patterned_number(match)
+        for match in ID_PATTERN.findall(cleaned)
+    )
 
 
 async def handle_long_message(
@@ -1770,7 +1798,7 @@ async def handle_long_message(
 
 
 async def handle_game_id_violation(message: discord.Message) -> None:
-    """Xử lý tin nhắn chứa ID game 6 số ở kênh chat tổng."""
+    """Xử lý tin nhắn chứa ID game 6-7 số ở kênh chat tổng."""
     user_id = str(message.author.id)
     violations[user_id] = violations.get(user_id, 0) + 1
     count = violations[user_id]
@@ -1837,7 +1865,7 @@ async def handle_game_id_violation(message: discord.Message) -> None:
     )
     embed.add_field(
         name="🗑️ Tin nhắn",
-        value="Đã xóa tin nhắn chứa ID 6 số.",
+        value="Đã xóa tin nhắn chứa ID 6-7 số.",
         inline=False,
     )
     embed.set_footer(text=f"User ID: {message.author.id}")
@@ -1890,9 +1918,13 @@ async def moderate_message(message: discord.Message) -> bool:
         await handle_long_message(message, effective_words)
         return True
 
-    # ID game 6 số ở kênh chat tổng.
+    # ID game 6-7 số ở kênh chat tổng.
+    # Bỏ qua: tin có link, số dính chữ (123456abc), số có quy luật (123456, 111111).
     if message.channel.id == CHAT_CHANNEL_ID:
-        if ID_PATTERN.search(content_for_id_check(message.content)):
+        if (
+            not LINK_PATTERN.search(message.content)
+            and contains_game_id(message.content)
+        ):
             await handle_game_id_violation(message)
             return True
 
